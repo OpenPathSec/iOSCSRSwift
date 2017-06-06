@@ -42,14 +42,15 @@ import Foundation
 
 
 //See: http://stackoverflow.com/questions/24099520/commonhmac-in-swift
-public enum cryptoAlgorithmHash {
-    case md5, sha1, sha224, sha256, sha384, sha512
+public enum cryptoAlgorithm {
+    case md5, sha1, sha224, sha256, sha384, sha512, secp521r1sha256
     
     var HMACAlgorithm: CCHmacAlgorithm {
         var result: Int = 0
         switch self {
         case .md5:      result = kCCHmacAlgMD5
         case .sha1:     result = kCCHmacAlgSHA1
+        case .secp521r1sha256: result = kCCHmacAlgSHA256
         case .sha224:   result = kCCHmacAlgSHA224
         case .sha256:   result = kCCHmacAlgSHA256
         case .sha384:   result = kCCHmacAlgSHA384
@@ -63,6 +64,7 @@ public enum cryptoAlgorithmHash {
         switch self {
         case .md5:      result = CC_MD5_DIGEST_LENGTH
         case .sha1:     result = CC_SHA1_DIGEST_LENGTH
+        case .secp521r1sha256: result = CC_SHA256_DIGEST_LENGTH
         case .sha224:   result = CC_SHA224_DIGEST_LENGTH
         case .sha256:   result = CC_SHA256_DIGEST_LENGTH
         case .sha384:   result = CC_SHA384_DIGEST_LENGTH
@@ -79,7 +81,7 @@ public class CertificateSigningRequest:NSObject {
     private let commonName:String?
     
     private var subjectDER:Data?
-    private var cryptoAlgorithmHash: cryptoAlgorithmHash!
+    private var cryptoAlgorithmHash: cryptoAlgorithm!
     
     private let OBJECT_commonName:[UInt8] = [0x06, 0x03, 0x55, 0x04, 0x03]
     private let OBJECT_countryName:[UInt8] = [0x06, 0x03, 0x55, 0x04, 0x06]
@@ -129,7 +131,7 @@ public class CertificateSigningRequest:NSObject {
     private let SEQUENCE_tag:UInt8 = 0x30
     private let SET_tag:UInt8 = 0x31
     
-    public init(commonName: String?, organizationName:String?, organizationUnitName:String?, countryName:String?, cryptoAlgorithmHash: cryptoAlgorithmHash){
+    public init(commonName: String?, organizationName:String?, organizationUnitName:String?, countryName:String?, cryptoAlgorithmHash: cryptoAlgorithm){
         
         self.commonName = commonName
         self.organizationName = organizationName
@@ -142,10 +144,10 @@ public class CertificateSigningRequest:NSObject {
     }
     
     public convenience override init(){
-        self.init(commonName: nil, organizationName:nil, organizationUnitName:nil, countryName:nil, cryptoAlgorithmHash: cryptoAlgorithmHash.sha1)
+        self.init(commonName: nil, organizationName:nil, organizationUnitName:nil, countryName:nil, cryptoAlgorithmHash: cryptoAlgorithm.sha1)
     }
     
-    public convenience init(cryptoAlgorithmHash: cryptoAlgorithmHash){
+    public convenience init(cryptoAlgorithmHash: cryptoAlgorithm){
         self.init(commonName: nil, organizationName:nil, organizationUnitName:nil, countryName:nil, cryptoAlgorithmHash: cryptoAlgorithmHash)
     }
     
@@ -159,7 +161,17 @@ public class CertificateSigningRequest:NSObject {
         var digest:[UInt8]
         
         switch cryptoAlgorithmHash! {
-        case .sha1:
+        case .secp521r1sha256: // XXX testing
+            // Build signature - step 1: SHA256 hash
+            var SHA256 = CC_SHA256_CTX()
+            CC_SHA256_Init(&SHA256)
+            CC_SHA256_Update(&SHA256, certificationRequestInfoBytes, CC_LONG(certificationRequestInfo.count))
+            digest = [UInt8](repeating: 0, count: cryptoAlgorithmHash.digestLength)
+            CC_SHA256_Final(&digest, &SHA256)
+            shaBytes = SEQUENCE_OBJECT_ecdsa_with_sha256
+            padding = SecPadding.PKCS1SHA256
+            
+        case .sha256:
             
             // Build signature - step 1: SHA1 hash
             var SHA1 = CC_SHA1_CTX()
@@ -169,17 +181,6 @@ public class CertificateSigningRequest:NSObject {
             CC_SHA1_Final(&digest, &SHA1)
             shaBytes = SEQUENCE_OBJECT_sha1WithRSAEncryption
             padding = SecPadding.PKCS1SHA1
-            
-        case .sha256:
-            
-            // Build signature - step 1: SHA256 hash
-            var SHA256 = CC_SHA256_CTX()
-            CC_SHA256_Init(&SHA256)
-            CC_SHA256_Update(&SHA256, certificationRequestInfoBytes, CC_LONG(certificationRequestInfo.count))
-            digest = [UInt8](repeating: 0, count: cryptoAlgorithmHash.digestLength)
-            CC_SHA256_Final(&digest, &SHA256)
-            shaBytes = SEQUENCE_OBJECT_sha256WithRSAEncryption
-            padding = SecPadding.PKCS1SHA256
             
         case .sha512:
             
